@@ -1,0 +1,18 @@
+{
+  "name": "obsidian-tooling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Portable, version-controlled Obsidian plugin stack + bootstrap installer (local-first AI via Ollama).",
+  "type": "commonjs",
+  "bin": {
+    "obsidian-bootstrap": "bootstrap.js"
+  },
+  "scripts": {
+    "bootstrap": "node bootstrap.js",
+    "check-ollama": "node check-ollama.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
