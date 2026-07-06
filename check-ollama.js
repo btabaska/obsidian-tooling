@@ -1,16 +1,14 @@
 #!/usr/bin/env node
 /*
- * check-ollama.js — detect Ollama and required local models. Never installs anything.
+ * check-ollama.js — resolve the AI backend and verify Ollama + required models. Never installs anything.
  *
- * As a module:   const { checkOllama } = require('./check-ollama.js'); await checkOllama(ollamaConfig)
- * Standalone:    node check-ollama.js            (reads plugins.json for the model list)
+ * As a module:   const { checkOllama, resolveBackend, probeOllama } = require('./check-ollama.js');
+ * Standalone:    node check-ollama.js [--profile local|rig|auto] [--rig-host http://host:11434]
  *
- * It verifies:
- *   1. the `ollama` binary is on PATH (informational),
- *   2. the server answers at http://localhost:11434,
- *   3. every required model from plugins.json is pulled — and prints the exact
- *      `ollama pull <model>` command for any that are missing.
- * Exit code is non-zero (standalone) if the server is unreachable or a required model is missing.
+ * Hybrid model: two named backends in plugins.json (`local` = this device's Ollama, `rig` = the
+ * CachyOS box over Tailscale). Profile `auto` uses local if it answers, else the rig. This script
+ * checks whichever backend is resolved, and prints the exact `ollama pull` command (and WHERE to run
+ * it) for any missing model. It never installs Ollama or any model.
  */
 'use strict';
 
@@ -24,18 +22,28 @@ const c = (n, s) => (useColor ? `[${n}m${s}[0m` : s);
 const green = (s) => c('32', s); const yellow = (s) => c('33', s);
 const red = (s) => c('31', s); const cyan = (s) => c('36', s); const bold = (s) => c('1', s);
 
-function getJson(url, timeoutMs = 3000) {
-  return new Promise((resolve, reject) => {
-    const req = http.get(url, (res) => {
-      const chunks = [];
-      res.on('data', (d) => chunks.push(d));
-      res.on('end', () => {
-        try { resolve({ status: res.statusCode, json: JSON.parse(Buffer.concat(chunks).toString()) }); }
-        catch (e) { reject(e); }
+const RIG_PLACEHOLDER = /CHANGE-ME/i;
+
+// Probe an Ollama server's /api/tags. Resolves to { reachable, models:[names] } (never rejects).
+function probeOllama(host, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    let req;
+    try {
+      req = http.get(`${host}/api/tags`, (res) => {
+        const chunks = [];
+        res.on('data', (d) => chunks.push(d));
+        res.on('end', () => {
+          try {
+            const j = JSON.parse(Buffer.concat(chunks).toString());
+            finish({ reachable: res.statusCode === 200, models: (j.models || []).map((m) => m.name) });
+          } catch { finish({ reachable: false, models: [] }); }
+        });
       });
-    });
-    req.on('error', reject);
-    req.setTimeout(timeoutMs, () => req.destroy(new Error('timeout')));
+    } catch { return finish({ reachable: false, models: [] }); }
+    req.on('error', () => finish({ reachable: false, models: [] }));
+    req.setTimeout(timeoutMs, () => { req.destroy(); finish({ reachable: false, models: [] }); });
   });
 }
 
@@ -46,63 +54,106 @@ function binaryOnPath() {
   });
 }
 
-// Compare requested model tag against installed names, tolerating the implicit ":latest" tag.
-function isInstalled(model, installedNames) {
-  const want = model.includes(':') ? model : `${model}:latest`;
-  return installedNames.some((n) => n === model || n === want || n.replace(/:latest$/, '') === model.replace(/:latest$/, ''));
+// Decide which backend to use.
+//   profile 'local' -> local backend (must be reachable or we warn)
+//   profile 'rig'   -> rig backend (host must not be the CHANGE-ME placeholder)
+//   profile 'auto'  -> local if it answers, else rig
+// Returns { name, backend, reason, localProbe } or throws with a helpful message.
+async function resolveBackend(ai, { profile = 'auto', rigHost } = {}) {
+  const backends = (ai && ai.backends) || {};
+  const local = backends.local;
+  const rig = backends.rig ? { ...backends.rig } : undefined;
+  if (rig && rigHost) rig.host = rigHost;
+
+  const rigConfigured = rig && rig.host && !RIG_PLACEHOLDER.test(rig.host);
+
+  if (profile === 'local') {
+    if (!local) throw new Error("No 'local' backend defined in plugins.json (ai.backends.local).");
+    const p = await probeOllama(local.host);
+    return { name: 'local', backend: local, reason: p.reachable ? 'forced local (reachable)' : 'forced local (NOT reachable yet)', localProbe: p };
+  }
+  if (profile === 'rig') {
+    if (!rig) throw new Error("No 'rig' backend defined in plugins.json (ai.backends.rig).");
+    if (!rigConfigured) throw new Error(`The rig host is still a placeholder (${rig.host}). Set ai.backends.rig.host in plugins.json to your rig's Tailscale name, or pass --rig-host http://<name>:11434.`);
+    return { name: 'rig', backend: rig, reason: 'forced rig' };
+  }
+  // auto
+  const p = local ? await probeOllama(local.host) : { reachable: false, models: [] };
+  if (p.reachable) return { name: 'local', backend: local, reason: 'auto: local Ollama answered', localProbe: p };
+  if (rigConfigured) return { name: 'rig', backend: rig, reason: 'auto: local unreachable -> rig' };
+  // Nothing usable — explain clearly.
+  const hint = rig && !rigConfigured
+    ? `Local Ollama isn't running and the rig host is still a placeholder (${rig.host}).\n  Either start local Ollama (ollama serve) or set ai.backends.rig.host / pass --rig-host.`
+    : `Local Ollama isn't running at ${local ? local.host : '(no local backend)'}.\n  Start it (ollama serve) or configure a rig backend.`;
+  throw new Error(hint);
 }
 
-async function checkOllama(ollamaConfig) {
-  const endpoint = (ollamaConfig && ollamaConfig.endpoint) || 'http://localhost:11434';
-  const required = (ollamaConfig && ollamaConfig.requiredModels) || [];
+// Compare a requested model tag against installed names, tolerating the implicit ":latest".
+function isInstalled(model, installedNames) {
+  return installedNames.some((n) => n === model || n.replace(/:latest$/, '') === model.replace(/:latest$/, ''));
+}
 
-  const bin = await binaryOnPath();
-  if (bin) console.log(`${green('✓')} ollama binary: ${bin}`);
-  else console.log(`${yellow('!')} ollama binary not found on PATH. Install it: ${cyan('https://ollama.com/download')} (this tool never auto-installs it).`);
+// Check a single resolved backend: server reachability + required models on THAT host.
+async function checkOllama(resolved) {
+  const { name, backend, reason } = resolved;
+  const host = backend.host;
+  const where = name === 'local' ? 'on this device' : `on the rig (${host})`;
 
-  let installedNames = [];
-  let reachable = false;
-  try {
-    const res = await getJson(`${endpoint}/api/tags`);
-    reachable = res.status === 200;
-    installedNames = (res.json.models || []).map((m) => m.name);
-    console.log(`${green('✓')} Ollama server reachable at ${endpoint} (${installedNames.length} model(s) installed).`);
-  } catch (e) {
-    console.log(`${yellow('!')} Ollama server not reachable at ${endpoint} (${e.message}).`);
-    console.log(`  Start it with: ${cyan('ollama serve')}   (or launch the Ollama app), then re-run.`);
+  console.log(`${cyan('•')} AI backend: ${bold(name)} — ${backend.label || host}  ${reason ? `(${reason})` : ''}`);
+
+  if (name === 'local') {
+    const bin = await binaryOnPath();
+    if (bin) console.log(`${green('✓')} ollama binary: ${bin}`);
+    else console.log(`${yellow('!')} ollama binary not on PATH. Install from ${cyan('https://ollama.com/download')} (never auto-installed).`);
   }
+
+  const p = resolved.localProbe && name === 'local' ? resolved.localProbe : await probeOllama(host);
+  if (p.reachable) {
+    console.log(`${green('✓')} Ollama reachable at ${host} (${p.models.length} model(s)).`);
+  } else {
+    console.log(`${yellow('!')} Ollama NOT reachable at ${host}.`);
+    if (name === 'local') console.log(`  Start it: ${cyan('ollama serve')} (or open the Ollama app), then re-run.`);
+    else console.log(`  Check the rig is up, Tailscale is connected on this device, and the rig runs Ollama with ${cyan('OLLAMA_HOST=0.0.0.0')}.`);
+    return { reachable: false, requiredMissing: [backend.chatModel], host, name };
+  }
+
+  const required = [
+    { model: backend.chatModel, optional: false, purpose: 'chat + tagging' },
+    { model: backend.embedModel, optional: true, purpose: 'Copilot vault-QA embeddings' },
+  ].filter((m) => m.model);
 
   const missing = [];
   for (const m of required) {
-    const present = reachable && isInstalled(m.model, installedNames);
+    const present = isInstalled(m.model, p.models);
     const tag = m.optional ? yellow('(optional)') : '';
-    const usedBy = m.usedBy ? ` — used by ${m.usedBy.join(', ')}` : '';
-    if (present) {
-      console.log(`  ${green('✓')} ${m.model} ${tag}${usedBy}`);
-    } else {
-      console.log(`  ${red('✗')} ${m.model} not installed ${tag}${usedBy}`);
-      if (!m.optional || reachable) missing.push(m);
-    }
+    if (present) console.log(`  ${green('✓')} ${m.model} ${tag} — ${m.purpose}`);
+    else { console.log(`  ${red('✗')} ${m.model} not installed ${tag} — ${m.purpose}`); missing.push(m); }
   }
 
-  const requiredMissing = missing.filter((m) => !m.optional);
   if (missing.length) {
     console.log('');
-    console.log(bold('  Pull the missing model(s):'));
-    for (const m of missing) console.log(`    ${cyan(`ollama pull ${m.model}`)}${m.optional ? yellow('   # optional') : ''}`);
+    console.log(bold(`  Pull the missing model(s) ${where}:`));
+    for (const m of missing) {
+      const cmd = name === 'local' ? `ollama pull ${m.model}` : `ssh <rig>  # then:  ollama pull ${m.model}`;
+      console.log(`    ${cyan(cmd)}${m.optional ? yellow('   # optional') : ''}`);
+    }
   }
-  return { reachable, requiredMissing: requiredMissing.map((m) => m.model), installedNames };
+  return { reachable: true, requiredMissing: missing.filter((m) => !m.optional).map((m) => m.model), host, name };
 }
 
-module.exports = { checkOllama };
+module.exports = { checkOllama, resolveBackend, probeOllama };
 
 if (require.main === module) {
-  const manifestPath = path.join(__dirname, 'plugins.json');
-  let ollama = {};
-  try { ollama = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).ollama || {}; }
-  catch { /* fall back to defaults */ }
-  console.log(bold('Ollama check'));
-  checkOllama(ollama).then((r) => {
-    if (!r.reachable || r.requiredMissing.length) process.exit(1);
-  });
+  const argv = process.argv.slice(2);
+  const get = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : undefined; };
+  const profile = get('--profile') || 'auto';
+  const rigHost = get('--rig-host');
+  let ai = {};
+  try { ai = JSON.parse(fs.readFileSync(path.join(__dirname, 'plugins.json'), 'utf8')).ai || {}; }
+  catch { /* defaults */ }
+  console.log(bold('Ollama / AI backend check'));
+  resolveBackend(ai, { profile, rigHost })
+    .then((resolved) => checkOllama(resolved))
+    .then((r) => { if (!r.reachable || r.requiredMissing.length) process.exit(1); })
+    .catch((e) => { console.log(`${red('✗')} ${e.message}`); process.exit(1); });
 }

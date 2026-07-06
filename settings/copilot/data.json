@@ -1,15 +1,15 @@
 {
-  "$comment": "Copilot (logancyang/obsidian-copilot) -> LOCAL Ollama, no cloud keys committed. Schema verified against src/constants.ts DEFAULT_SETTINGS + src/aiParams.ts CustomModel. Model key format is 'name|provider'. For Ollama: baseUrl MUST be the bare host with NO /v1, and enableCors:true routes via Obsidian's safeFetch (needed for http:// hosts). Only overrides are set here; blank API keys default to '' via merge. Requires: ollama pull llama3.1:8b  AND (for vault QA embeddings) ollama pull nomic-embed-text. To switch to a cloud provider later, add its API key IN THE APP (Settings -> Copilot), never in this repo, and change defaultModelKey.",
+  "$comment": "Copilot -> Ollama (local or rig, chosen per device), no cloud keys committed. The __OLLAMA_*__ tokens are substituted by bootstrap from the resolved AI backend. Ollama baseUrl is the bare host with NO /v1; enableCors:true routes via Obsidian's safeFetch (required for http:// hosts, especially on mobile calling the rig over Tailscale). To ALSO keep a switchable second model (e.g. local on the MacBook + a bigger model on the rig), add another entry to activeModels with a DISTINCT 'name' and its own baseUrl, then pick it from Copilot's model dropdown. To use a cloud provider, add its key IN THE APP, never in this repo.",
   "defaultChainType": "llm_chain",
-  "defaultModelKey": "llama3.1:8b|ollama",
-  "embeddingModelKey": "nomic-embed-text|ollama",
+  "defaultModelKey": "__OLLAMA_CHAT_MODEL__|ollama",
+  "embeddingModelKey": "__OLLAMA_EMBED_MODEL__|ollama",
   "stream": true,
   "isPlusUser": false,
   "activeModels": [
     {
-      "name": "llama3.1:8b",
+      "name": "__OLLAMA_CHAT_MODEL__",
       "provider": "ollama",
-      "baseUrl": "http://localhost:11434",
+      "baseUrl": "__OLLAMA_HOST__",
       "enabled": true,
       "isBuiltIn": false,
       "enableCors": true
@@ -17,9 +17,9 @@
   ],
   "activeEmbeddingModels": [
     {
-      "name": "nomic-embed-text",
+      "name": "__OLLAMA_EMBED_MODEL__",
       "provider": "ollama",
-      "baseUrl": "http://localhost:11434",
+      "baseUrl": "__OLLAMA_HOST__",
       "enabled": true,
       "isBuiltIn": false,
       "isEmbeddingModel": true,

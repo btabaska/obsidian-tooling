@@ -32,6 +32,7 @@ const fsp = require('fs/promises');
 const path = require('path');
 const https = require('https');
 const { execFile } = require('child_process');
+const { checkOllama, resolveBackend } = require('./check-ollama.js');
 
 const ROOT = __dirname;
 const REGISTRY_URL =
@@ -59,11 +60,13 @@ const err = (...a) => console.error(red('✗'), ...a);
 // Arg parsing
 // ----------------------------------------------------------------------------
 function parseArgs(argv) {
-  const args = { update: false, dryRun: false, forceSettings: false, backup: true, ollama: true };
+  const args = { update: false, dryRun: false, forceSettings: false, backup: true, ollama: true, profile: undefined, rigHost: undefined };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
       case '--vault': args.vault = argv[++i]; break;
+      case '--profile': args.profile = argv[++i]; break;
+      case '--rig-host': args.rigHost = argv[++i]; break;
       case '--update': args.update = true; break;
       case '--dry-run': args.dryRun = true; break;
       case '--force-settings': args.forceSettings = true; break;
@@ -72,8 +75,13 @@ function parseArgs(argv) {
       case '-h': case '--help': args.help = true; break;
       default:
         if (a.startsWith('--vault=')) args.vault = a.slice('--vault='.length);
+        else if (a.startsWith('--profile=')) args.profile = a.slice('--profile='.length);
+        else if (a.startsWith('--rig-host=')) args.rigHost = a.slice('--rig-host='.length);
         else { throw new Error(`Unknown argument: ${a}`); }
     }
+  }
+  if (args.profile && !['auto', 'local', 'rig'].includes(args.profile)) {
+    throw new Error(`--profile must be one of: auto, local, rig (got "${args.profile}")`);
   }
   return args;
 }
@@ -217,12 +225,34 @@ async function main() {
   const pluginsDir = path.join(obsidianDir, 'plugins');
   const settingsDir = path.join(ROOT, 'settings');
 
+  // Resolve which AI backend (local vs rig) this device uses, and build the token map that
+  // gets substituted into the AI plugins' data.json.
+  const profile = args.profile || (manifest.ai && manifest.ai.defaultProfile) || 'auto';
+  let backend, tokens = {};
+  try {
+    const resolved = await resolveBackend(manifest.ai, { profile, rigHost: args.rigHost });
+    backend = resolved;
+    const b = resolved.backend;
+    tokens = {
+      __OLLAMA_HOST__: b.host,
+      __OLLAMA_CHAT_ENDPOINT__: `${b.host.replace(/\/$/, '')}/v1/chat/completions`,
+      __OLLAMA_CHAT_MODEL__: b.chatModel,
+      __OLLAMA_EMBED_MODEL__: b.embedModel,
+    };
+  } catch (e) {
+    // Can't resolve a backend (e.g. local down + rig placeholder). Don't hard-fail the whole
+    // install — plugins/settings without tokens still apply. Warn and leave AI settings for later.
+    warn(`AI backend not resolved: ${e.message}`);
+    warn('AI plugin settings (Copilot, AI Tagger) will be SKIPPED this run. Fix the backend and re-run with --force-settings.');
+  }
+
   log('');
   log(bold('Obsidian config bootstrap'));
   log(`  vault:          ${vault}`);
   log(`  mode:           ${args.dryRun ? yellow('DRY-RUN (no writes)') : 'write'}`);
   log(`  update plugins: ${args.update ? 'yes (re-download latest)' : 'no (skip installed)'}`);
   log(`  settings:       ${args.forceSettings ? yellow('force overwrite') : 'copy only if missing'}`);
+  log(`  AI backend:     ${backend ? `${bold(backend.name)} @ ${backend.backend.host} ${dim(`(${backend.reason})`)}` : yellow('unresolved — AI settings skipped')}`);
   log('');
 
   const summary = { installed: [], updated: [], skipped: [], failed: [], settingsCopied: [], settingsKept: [] };
@@ -309,23 +339,37 @@ async function main() {
       continue;
     }
 
+    // Read the template. If it references __OLLAMA_*__ tokens, it needs a resolved AI backend.
+    let rawText = await fsp.readFile(src, 'utf8');
+    const needsTokens = /__OLLAMA_[A-Z_]+__/.test(rawText);
+    if (needsTokens && !backend) {
+      warn(`  ${p.name}: needs an AI backend (unresolved) — skipping its settings this run.`);
+      continue;
+    }
+    if (needsTokens) {
+      for (const [tok, val] of Object.entries(tokens)) rawText = rawText.split(tok).join(val);
+      const leftover = rawText.match(/__OLLAMA_[A-Z_]+__/);
+      if (leftover) { err(`  ${p.name}: unsubstituted token ${leftover[0]} — check plugins.json ai.backends.`); summary.failed.push(`${p.id} (bad template)`); continue; }
+    }
+
     const destExists = exists(dest);
     if (destExists && !args.forceSettings) {
       log(`  ${dim('=')} ${p.name.padEnd(20)} ${dim('keeping existing data.json (use --force-settings to overwrite)')}`);
       summary.settingsKept.push(p.id);
       continue;
     }
+    const tokNote = needsTokens ? dim(` [${backend.name} backend]`) : '';
     if (args.dryRun) {
-      log(`  ${yellow('→')} ${p.name.padEnd(20)} ${dim(`would ${destExists ? 'OVERWRITE' : 'copy'} data.json`)}`);
+      log(`  ${yellow('→')} ${p.name.padEnd(20)} ${dim(`would ${destExists ? 'OVERWRITE' : 'copy'} data.json`)}${tokNote}`);
       summary.settingsCopied.push(p.id);
       continue;
     }
     await fsp.mkdir(destDir, { recursive: true });
-    // Copy through JSON.parse to strip our "$comment" doc keys before Obsidian sees them.
-    const raw = JSON.parse(await fsp.readFile(src, 'utf8'));
+    // Parse (validates the template + strips our "$comment" doc keys before Obsidian sees them).
+    const raw = JSON.parse(rawText);
     stripComments(raw);
     await fsp.writeFile(dest, JSON.stringify(raw, null, 2) + '\n');
-    ok(`${p.name.padEnd(20)} ${destExists ? 'overwrote' : 'copied'} data.json`);
+    ok(`${p.name.padEnd(20)} ${destExists ? 'overwrote' : 'copied'} data.json${tokNote}`);
     summary.settingsCopied.push(p.id);
   }
 
@@ -343,12 +387,12 @@ async function main() {
   // --- 7. Ollama check ------------------------------------------------------
   if (args.ollama) {
     log('');
-    info(bold('Ollama check:'));
-    try {
-      const { checkOllama } = require('./check-ollama.js');
-      await checkOllama(manifest.ollama);
-    } catch (e) {
-      warn(`Ollama check skipped: ${e.message}`);
+    info(bold('AI backend check:'));
+    if (backend) {
+      try { await checkOllama(backend); }
+      catch (e) { warn(`Ollama check skipped: ${e.message}`); }
+    } else {
+      warn('No AI backend resolved. Start local Ollama, or set ai.backends.rig.host in plugins.json (or pass --rig-host), then re-run with --force-settings.');
     }
   }
 
