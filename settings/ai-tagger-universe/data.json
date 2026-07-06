@@ -1,0 +1,9 @@
+{
+  "$comment": "AI Tagger Universe -> LOCAL Ollama. Keys verified against src/core/settings.ts. Only the keys that differ from the plugin's own defaults are set here; everything else is merged from DEFAULT_SETTINGS on load. IMPORTANT: the local endpoint must be Ollama's OpenAI-COMPATIBLE path (/v1/chat/completions), NOT the native /api path — the plugin posts OpenAI-style requests. Tags are always written to YAML frontmatter (the plugin has no inline-tag mode). Requires: ollama pull llama3.1:8b",
+  "serviceType": "local",
+  "localEndpoint": "http://localhost:11434/v1/chat/completions",
+  "localModel": "llama3.1:8b",
+  "localServiceType": "ollama",
+  "replaceTags": false,
+  "tagFormat": "kebab-case"
+}

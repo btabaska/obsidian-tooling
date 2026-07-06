@@ -1,0 +1,31 @@
+{
+  "$comment": "Single source of truth for the plugin stack. Edit this to add/remove plugins, then re-run bootstrap. 'type' is 'core' (shipped with Obsidian, only toggled on) or 'community' (downloaded from GitHub Releases). IDs and repos were resolved from obsidianmd/obsidian-releases; bootstrap re-resolves community IDs->repos from that registry at runtime and only falls back to the 'repo' field here if resolution fails.",
+  "corePlugins": [
+    {
+      "id": "bases",
+      "name": "Bases",
+      "type": "core",
+      "note": "Core plugin (ships with Obsidian). Enabled in core-plugins.json; never downloaded."
+    }
+  ],
+  "communityPlugins": [
+    { "id": "obsidian-tasks-plugin", "name": "Tasks",               "type": "community", "repo": "obsidian-tasks-group/obsidian-tasks" },
+    { "id": "periodic-notes",        "name": "Periodic Notes",      "type": "community", "repo": "liamcain/obsidian-periodic-notes" },
+    { "id": "calendar",              "name": "Calendar",            "type": "community", "repo": "liamcain/obsidian-calendar-plugin" },
+    { "id": "ai-tagger-universe",    "name": "AI Tagger Universe",  "type": "community", "repo": "niehu2018/obsidian-ai-tagger-universe" },
+    { "id": "note-mover-shortcut",   "name": "Advanced Note Mover", "type": "community", "repo": "bueckerlars/obsidian-note-mover-shortcut" },
+    { "id": "obsidian-kanban",       "name": "Kanban",              "type": "community", "repo": "obsidian-community/obsidian-kanban" },
+    { "id": "task-board",            "name": "Task Board",          "type": "community", "repo": "tu2-atmanand/Task-Board" },
+    { "id": "copilot",               "name": "Copilot",             "type": "community", "repo": "logancyang/obsidian-copilot" },
+    { "id": "smart-connections",     "name": "Smart Connections",   "type": "community", "repo": "brianpetro/obsidian-smart-connections" },
+    { "id": "templater-obsidian",    "name": "Templater",           "type": "community", "repo": "silentvoid13/Templater" },
+    { "id": "quickadd",              "name": "QuickAdd",            "type": "community", "repo": "chhoumann/quickadd" }
+  ],
+  "ollama": {
+    "endpoint": "http://localhost:11434",
+    "requiredModels": [
+      { "model": "llama3.1:8b", "usedBy": ["ai-tagger-universe", "copilot"], "purpose": "chat / tagging (small capable local model)" },
+      { "model": "nomic-embed-text", "usedBy": ["copilot"], "purpose": "optional local embeddings for Copilot vault QA", "optional": true }
+    ]
+  }
+}

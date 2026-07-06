@@ -1,0 +1,5 @@
+{
+  "$comment": "Calendar -> minimal. Keys verified present in shipped main.js. weekStart 'locale' follows your system locale; showWeeklyNote pairs nicely with Periodic Notes. Everything else uses plugin defaults.",
+  "weekStart": "locale",
+  "showWeeklyNote": false
+}

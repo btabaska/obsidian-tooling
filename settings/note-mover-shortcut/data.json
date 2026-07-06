@@ -1,0 +1,24 @@
+{
+  "$comment": "Advanced Note Mover (note-mover-shortcut) -> works out of the box, meant to be edited. Schema verified against the SHIPPED main.js of the resolved release (tag 1.1.2): rulesV2 model + settings.triggers. A rule = {name, destination (target folder), aggregation, triggers:[{criteriaType:'tag', operator:'includes item', value:'<tag>'}], active}. On-save/automatic = triggers.enableOnEditTrigger:true. NOTE: this plugin has no debounce/delay setting; the only timing knob is periodicMovementInterval (minutes), which applies to periodic mode only. THESE THREE RULES ARE EXAMPLES — edit or delete them.",
+  "settings": {
+    "triggers": {
+      "enablePeriodicMovement": false,
+      "periodicMovementInterval": 5,
+      "enableOnEditTrigger": true
+    },
+    "filters": { "filter": [] },
+    "retentionPolicy": { "value": 30, "unit": "days" },
+    "rulesV2": [
+      { "name": "Work",   "destination": "Work/",   "aggregation": "all", "triggers": [{ "criteriaType": "tag", "operator": "includes item", "value": "work" }],   "active": true },
+      { "name": "Home",   "destination": "Home/",   "aggregation": "all", "triggers": [{ "criteriaType": "tag", "operator": "includes item", "value": "home" }],   "active": true },
+      { "name": "Gaming", "destination": "Gaming/", "aggregation": "all", "triggers": [{ "criteriaType": "tag", "operator": "includes item", "value": "gaming" }], "active": true }
+    ],
+    "enableRuleEvaluationCache": true,
+    "enableVaultIndexCache": true,
+    "enablePerformanceDebug": false,
+    "showReleaseNotesOnUpdate": true,
+    "attachments": { "moveWithNote": true, "skipSharedAttachments": true, "deleteEmptyAssetFolders": false }
+  },
+  "history": { "history": [], "bulkOperations": [] },
+  "schemaVersion": 1
+}

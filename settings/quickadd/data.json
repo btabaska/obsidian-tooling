@@ -1,0 +1,6 @@
+{
+  "$comment": "QuickAdd -> minimal. Keys verified present in shipped main.js. Ships with no pre-defined choices/macros (add your own capture/template/macro choices in-app; QuickAdd's choices are very personal). Everything else uses plugin defaults.",
+  "choices": [],
+  "macros": [],
+  "inputPrompt": "single-line"
+}

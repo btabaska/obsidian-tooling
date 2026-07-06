@@ -1,0 +1,24 @@
+{
+  "$comment": "Periodic Notes -> daily notes enabled. Schema verified against the SHIPPED main.js of the resolved release (tag 1.0.0-beta.3), which uses the calendarSets model (NOT the older flat daily/weekly shape). Keys: each period lives under calendarSets[].{day,week,month,...} as {enabled, openAtStartup, format, folder, templatePath}. 'id' must equal 'activeCalendarSet'. Edit the folder/format below to taste; add a week/month block to enable more periods.",
+  "installedVersion": "1.0.0-beta3",
+  "showGettingStartedBanner": false,
+  "hasMigratedDailyNoteSettings": true,
+  "hasMigratedWeeklyNoteSettings": true,
+  "activeCalendarSet": "Default",
+  "calendarSets": [
+    {
+      "id": "Default",
+      "ctime": "2026-01-01T00:00:00+00:00",
+      "day": {
+        "enabled": true,
+        "openAtStartup": false,
+        "format": "YYYY-MM-DD",
+        "folder": "Journal/Daily",
+        "templatePath": ""
+      }
+    }
+  ],
+  "enableTimelineComplication": true,
+  "localeOverride": "system-default",
+  "weekStart": "locale"
+}

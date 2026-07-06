@@ -1,0 +1,3 @@
+{
+  "$comment": "Tasks -> intentionally left at plugin defaults (no global filter, default statuses). Tasks' global filter and status config are highly personal and easy to get wrong, so nothing is forced here. This file is effectively empty; bootstrap strips this comment and writes {} so the plugin initializes its own defaults. Configure in Settings -> Tasks."
+}

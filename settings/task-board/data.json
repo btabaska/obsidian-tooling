@@ -1,0 +1,3 @@
+{
+  "$comment": "Task Board -> intentionally left at plugin defaults. Its board/column layout is best configured interactively in-app on first run. This file is effectively empty; bootstrap strips this comment and writes {}."
+}

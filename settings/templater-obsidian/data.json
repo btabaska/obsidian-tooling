@@ -1,0 +1,7 @@
+{
+  "$comment": "Templater -> minimal. Keys verified present in shipped main.js. Points Templater at a 'Templates' folder; does NOT auto-run templates on file creation (safer default). Edit templates_folder to match your vault. Everything else falls back to plugin defaults on load.",
+  "templates_folder": "Templates",
+  "trigger_on_file_creation": false,
+  "enable_folder_templates": false,
+  "syntax_highlighting": true
+}
