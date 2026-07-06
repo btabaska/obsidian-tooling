@@ -22,19 +22,19 @@
     { "id": "quickadd",              "name": "QuickAdd",            "type": "community", "repo": "chhoumann/quickadd" }
   ],
   "ai": {
-    "$comment": "Hybrid AI backends. bootstrap picks one per device and templates its host/model into the AI plugins' data.json. Default profile 'auto': use this device's local Ollama if it answers, else fall back to the rig. Override with --profile local|rig|auto. The rig is reached over Tailscale so it works from any device, including cellular. IMPORTANT: set backends.rig.host to your rig's Tailscale name (run `tailscale status` on the rig, or use its MagicDNS name / 100.x.y.z IP) — bootstrap refuses to target the rig while it is still the CHANGE-ME placeholder.",
-    "defaultProfile": "auto",
+    "$comment": "Hybrid AI backends. bootstrap templates the chosen backend's host/model into the AI plugins' data.json. defaultProfile is 'local': this work MacBook (and the rig, if the repo is cloned there) uses its OWN Ollama and never touches Tailscale. The iPad/iPhone can't run this script and instead point at the rig over Tailscale (seed them once — see README 'iPad & iPhone'). Only fill backends.rig.host (the rig's Tailscale MagicDNS name or 100.x.y.z IP) when you set up the rig / seed mobile; bootstrap refuses to target the rig while it is the CHANGE-ME placeholder. Override per run with --profile local|rig and --rig-host.",
+    "defaultProfile": "local",
     "backends": {
       "local": {
         "label": "Local (this device's own Ollama)",
         "host": "http://localhost:11434",
-        "chatModel": "llama3.1:8b",
+        "chatModel": "gemma3:12b-it-qat",
         "embedModel": "nomic-embed-text"
       },
       "rig": {
         "label": "CachyOS rig (RTX 3090 Ti) over Tailscale",
         "host": "http://CHANGE-ME-rig.your-tailnet.ts.net:11434",
-        "chatModel": "llama3.1:8b",
+        "chatModel": "gemma3:27b-it-qat",
         "embedModel": "nomic-embed-text"
       }
     }

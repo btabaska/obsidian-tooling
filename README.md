@@ -29,7 +29,7 @@ nothing phones home to a cloud provider by default. See [Hybrid AI backends](#hy
    (An empty folder is a valid brand-new vault.)
 5. **Pull the AI models** the script tells you are missing (on whichever host serves them):
    ```bash
-   ollama pull llama3.1:8b        # chat + tagging (required)
+   ollama pull gemma3:12b-it-qat  # chat + tagging on this MacBook (required)
    ollama pull nomic-embed-text   # local embeddings for Copilot vault QA (optional)
    ```
 6. **Restart Obsidian** (or reload the vault) to pick up the new plugins.
@@ -164,7 +164,8 @@ minimal — anything not set falls back to the plugin's own defaults, which each
 
 | Model | Used by | Purpose | Required? |
 |---|---|---|---|
-| `llama3.1:8b` | AI Tagger Universe, Copilot | chat + tagging (small, capable, ~4.7 GB) | **yes** |
+| `gemma3:12b-it-qat` | AI Tagger Universe, Copilot | chat + tagging on this MacBook (QAT ≈ fp16 quality at ~8.9 GB) | **yes** (local) |
+| `gemma3:27b-it-qat` | (rig) | chat on the rig's 3090 Ti (~18 GB, fits 24 GB VRAM) | rig default |
 | `nomic-embed-text` | Copilot | embeddings for vault Q&A | optional |
 
 `node check-ollama.js [--profile …] [--rig-host …]` (also run at the end of bootstrap) resolves the
@@ -175,44 +176,50 @@ backend, verifies that host's Ollama is up, and prints exactly which `ollama pul
 
 ## Hybrid AI backends
 
-Run models **locally when the device can, call the rig when it can't** — from one repo.
+Run models **locally on devices that can, call the rig on devices that can't** — from one repo.
+
+**This MacBook is a work laptop: it stays OFF Tailscale and always uses its own local Ollama.** The rig
+stays on Tailscale to serve the iPad and iPhone (which can't run Ollama themselves).
 
 **The two backends** (defined in `plugins.json` → `ai.backends`):
 
 | Backend | Host | Who uses it |
 |---|---|---|
-| `local` | `http://localhost:11434` | This MacBook (M4 Pro), the rig itself — anything with its own Ollama |
-| `rig` | `http://<rig>.<tailnet>.ts.net:11434` | iPad, iPhone, and any device without a local model |
+| `local` | `http://localhost:11434` | This MacBook (M4 Pro), and the rig for itself — anything with its own Ollama |
+| `rig` | `http://<rig>.<tailnet>.ts.net:11434` | iPad, iPhone — devices without a local model, over Tailscale |
 
-**How the backend is chosen** (`--profile`, default `auto`):
+**How the backend is chosen** (`--profile`, default **`local`**):
 
-- `auto` → probe `localhost:11434`; if it answers use **local**, otherwise use the **rig**. This is the
-  hybrid default: capable devices run local, others fall back to the rig automatically.
-- `local` / `rig` → force one explicitly.
+- `local` (default) → this device uses its own Ollama. No Tailscale, no rig. This is what the work
+  laptop uses, and what the rig uses for itself.
+- `rig` → force the rig (used only when seeding mobile from a desktop; requires `ai.backends.rig.host`).
+- `auto` → probe `localhost:11434`; local if it answers, else rig. (Available if you later want a device
+  that flips automatically; not used by the work laptop.)
 
 Bootstrap templates the chosen host + model into the AI plugins' `data.json` (the `__OLLAMA_*__`
-tokens). If `auto` finds neither (local down *and* rig still a placeholder), it **skips only the AI
-settings** — the rest of the install still succeeds — and tells you how to fix it.
+tokens). If a backend can't be resolved (e.g. forced `rig` with the host still a placeholder), it
+**skips only the AI settings** — the rest of the install still succeeds — and tells you how to fix it.
 
-### One-time rig setup (Tailscale)
+### One-time rig setup (Tailscale) — only to serve the iPad/iPhone
 
-You already run Tailscale on the iPad, iPhone, and rig. Two things to finish:
+**This does NOT involve the work MacBook** — leave it off Tailscale. Do all of this on the rig, which is
+already on your tailnet along with the iPad and iPhone.
 
-1. **Install Tailscale on this MacBook** (<https://tailscale.com/download>) and sign into the same
-   tailnet, so it can reach the rig by name when you want the rig from here.
-2. **Make the rig's Ollama serve the tailnet.** By default Ollama binds to localhost only. On the rig
+1. **Make the rig's Ollama serve the tailnet.** By default Ollama binds to localhost only. On the rig
    (CachyOS), set `OLLAMA_HOST=0.0.0.0` and restart it:
    ```bash
    sudo systemctl edit ollama         # add:  [Service]\n Environment="OLLAMA_HOST=0.0.0.0"
    sudo systemctl restart ollama
    tailscale status                   # note the rig's name / 100.x.y.z address
+   ollama pull gemma3:27b-it-qat && ollama pull nomic-embed-text
    ```
-   Then verify from another device on the tailnet: `curl http://<rig>:11434/api/tags`.
+   Verify from the iPad/iPhone (or any tailnet device): `curl http://<rig>:11434/api/tags`.
 
-3. **Tell the repo the rig's address.** Edit `plugins.json` → `ai.backends.rig.host` to the rig's
-   Tailscale **MagicDNS name** (e.g. `http://rig.tail1234.ts.net:11434`) or its `100.x.y.z:11434` IP.
-   (Or skip editing and pass `--rig-host` per run.) Bootstrap refuses to target the rig while the host
-   is still the `CHANGE-ME…` placeholder, so you can't accidentally ship a broken endpoint.
+2. **Record the rig's address for the mobile-seeding step only.** When you seed the iPad/iPhone
+   (below), you'll use the rig's Tailscale **MagicDNS name** (e.g. `http://rig.tail1234.ts.net:11434`)
+   or its `100.x.y.z:11434` IP — either directly in-app, or by editing `plugins.json` →
+   `ai.backends.rig.host` on the *rig's* clone and running `--profile rig`. The work laptop never needs
+   this value.
 
 Security note: Ollama has no auth. Serving it on `0.0.0.0` is fine **because Tailscale keeps it on your
 private tailnet** — do not port-forward `11434` to the public internet.
@@ -221,13 +228,13 @@ private tailnet** — do not port-forward `11434` to the public internet.
 
 | Device | Command | Result |
 |---|---|---|
-| MacBook M4 Pro | `./bootstrap.sh --vault "…"` | `auto` → **local** (24 GB runs `llama3.1:8b` easily) |
-| CachyOS rig | `./bootstrap.sh --vault "…"` | `auto` → **local** (its own Ollama) |
-| iPad Pro / iPhone | *can't run the script* — see below | uses the **rig** |
+| MacBook M4 Pro (work) | `./bootstrap.sh --vault "…"` | **local**, off Tailscale (24 GB runs `gemma3:12b-it-qat` easily) |
+| CachyOS rig | `./bootstrap.sh --vault "…"` | **local** (its own Ollama, `gemma3:27b-it-qat`) |
+| iPad Pro / iPhone | *can't run the script* — see below | the **rig** over Tailscale |
 
-The rig's 3090 Ti (24 GB) can serve a bigger model than the laptops if you like — set
-`ai.backends.rig.chatModel` to e.g. `qwen2.5:14b`, pull it on the rig, and (optionally) add it as a
-second switchable model in `settings/copilot/data.json`.
+The rig default is `gemma3:27b-it-qat` (~18 GB, fits the 3090 Ti's 24 GB). Change
+`ai.backends.rig.chatModel` if you prefer something else, pull it on the rig, and (optionally) add it as
+a second switchable model in `settings/copilot/data.json`.
 
 ### iPad & iPhone (Obsidian Sync)
 
